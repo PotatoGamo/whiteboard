@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Infinite Canvas</title>
+
+    <style>
+        html,
+        body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -khtml-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
+            overflow: hidden;
+        }
+
+        .pen-color {
+            position: absolute;
+            z-index: 99;
+            border: none;
+            --offsetx: 2px;
+            --offsety: 2px;
+            --blur-rad: 0px;
+            --spread: 0px;
+            box-shadow: var(--offsetx) var(--offsety) var(--blur-rad) var(--spread) rgba(0, 0, 0, 0.39);
+        }
+
+        .color-button {
+            padding: 6px 16px;
+            border-radius: 5px;
+        }
+
+        #color-picker {
+            transform: translate(15px, 15px);
+            border-radius: 50%;
+            inline-size: 30px;
+            block-size: 30px;
+            border-width: 1px;
+            border-style: solid;
+            align-content: center;
+            justify-content: center;
+            border-color: transparent;
+            background-color: transparent;
+        }
+
+        input[type="color" i]::-webkit-color-swatch {
+            border-radius: 5px;
+            border-color: transparent;
+            align-self: center;
+            justify-self: center;
+            display: none;
+        }
+
+        #col-ff595e {
+            transform: translate(55px, 15px);
+            background-color: #ff595e;
+        }
+
+        #col-ffca3a {
+            transform: translate(95px, 15px);
+            background-color: #ffca3a;
+        }
+
+        #col-8ac926 {
+            transform: translate(135px, 15px);
+            background-color: #8ac926;
+        }
+
+        #col-1982c4 {
+            transform: translate(175px, 15px);
+            background-color: #1982c4;
+        }
+
+        #col-6a4c93 {
+            transform: translate(215px, 15px);
+            background-color: #6a4c93;
+        }
+
+        #col-ffffff {
+            transform: translate(255px, 15px);
+            background-color: #ffffff;
+            border-color: #000000;
+            border-width: 2px;
+            border: #000000;
+        }
+    </style>
+
+</head>
+
+<body>
+    <input type="color" name="color-picker" id="color-picker" value="#000" class="pen-color">
+    <input type="button" onclick="setPenColor('#ff595e')" id="col-ff595e" class="pen-color color-button">
+    <input type="button" onclick="setPenColor('#ffca3a')" id="col-ffca3a" class="pen-color color-button">
+    <input type="button" onclick="setPenColor('#8ac926')" id="col-8ac926" class="pen-color color-button">
+    <input type="button" onclick="setPenColor('#1982c4')" id="col-1982c4" class="pen-color color-button">
+    <input type="button" onclick="setPenColor('#6a4c93')" id="col-6a4c93" class="pen-color color-button">
+    <input type="button" onclick="eraser()" id="col-ffffff" class="pen-color color-button">
+
+    <canvas id="canvas">Your browser does not support HTML5 canvas</canvas>
+    <script>
+        // Get the canvas element
+        const canvas = document.getElementById("canvas");
+        const context = canvas.getContext("2d");
+        const colorPicker = document.getElementById("color-picker");
+        context.lineWidth = 2;
+
+        // Disable right-clicking
+        document.oncontextmenu = function () {
+            return false;
+        }
+
+        // List of all strokes drawn
+        const drawings = loadDrawings();
+
+        // Background color variable
+        let bgColor = "#333333";  // Default background color
+
+        // Coordinates of our cursor
+        let cursorX;
+        let cursorY;
+        let prevCursorX;
+        let prevCursorY;
+
+        // Distance from origin
+        let offsetX = 0;
+        let offsetY = 0;
+
+        // Zoom amount
+        let scale = 1;
+
+        // Convert coordinates
+        function toScreenX(xTrue) {
+            return (xTrue + offsetX) * scale;
+        }
+
+        function toScreenY(yTrue) {
+            return (yTrue + offsetY) * scale;
+        }
+
+        function toTrueX(xScreen) {
+            return (xScreen / scale) - offsetX;
+        }
+
+        function toTrueY(yScreen) {
+            return (yScreen / scale) - offsetY;
+        }
+
+        function trueHeight() {
+            return canvas.clientHeight / scale;
+        }
+
+        function trueWidth() {
+            return canvas.clientWidth / scale;
+        }
+
+        function setPenColor(hex) {
+            colorPicker.value = hex;
+            colorPicker.style.backgroundColor = colorPicker.value;
+            context.lineWidth = 2;
+            saveColorPicker(hex);
+        }
+
+        function eraser() {
+            setPenColor("bgColor"); // Use bgColor for the eraser
+            context.lineWidth = 25;
+        }
+
+        function redrawCanvas() {
+            // Set the canvas to the size of the window
+            canvas.width = document.body.clientWidth;
+            canvas.height = document.body.clientHeight;
+            context.fillStyle = bgColor; // Use bgColor to fill the canvas
+            context.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Redraw all strokes
+            for (let i = 0; i < drawings.length; i++) {
+                const line = drawings[i];
+                drawLine(toScreenX(line.x0), toScreenY(line.y0), toScreenX(line.x1), toScreenY(line.y1), line.color, line.lineWidth);
+            }
+        }
+
+        function saveDrawings() {
+            // Save drawings array to local storage
+            localStorage.setItem('drawings', JSON.stringify(drawings));
+        }
+
+        function loadDrawings() {
+            // Load drawings from local storage, or return an empty array if not found
+            const storedDrawings = localStorage.getItem('drawings');
+            return storedDrawings ? JSON.parse(storedDrawings) : [];
+        }
+
+        function loadColorPicker() {
+            // Load the color from local storage, or return the default value if not found
+            const storedColor = localStorage.getItem('color-picker');
+            return storedColor || "#000000";
+        }
+
+        function saveColorPicker(color) {
+            // Save the color to local storage
+            localStorage.setItem('color-picker', color);
+        }
+
+        function changeBackgroundColor(newColor) {
+            bgColor = newColor; // Update the bgColor variable
+            redrawCanvas(); // Redraw the canvas with the new background color
+
+            // Update eraser strokes to match new background color
+            for (let i = 0; i < drawings.length; i++) {
+                if (drawings[i].color === eraserColor) {
+                    drawings[i].color = bgColor;
+                }
+            }
+            saveDrawings(); // Save updated drawings
+        }
+
+        // Initialize color picker with saved color
+        colorPicker.value = loadColorPicker();
+        colorPicker.style.backgroundColor = colorPicker.value;
+
+        // Save color when color picker value changes
+        colorPicker.addEventListener('change', () => {
+            saveColorPicker(colorPicker.value);
+            colorPicker.style.backgroundColor = colorPicker.value;
+        });
+
+        redrawCanvas();
+
+        // If the window changes size, redraw the canvas
+        window.addEventListener("resize", (event) => {
+            redrawCanvas();
+        });
+
+        // Mouse Event Handlers
+        canvas.addEventListener('mousedown', onMouseDown);
+        canvas.addEventListener('mouseup', onMouseUp, false);
+        canvas.addEventListener('mouseout', onMouseUp, false);
+        canvas.addEventListener('mousemove', onMouseMove, false);
+        canvas.addEventListener('wheel', onMouseWheel, false);
+
+        // Touch Event Handlers 
+        canvas.addEventListener('touchstart', onTouchStart);
+        canvas.addEventListener('touchend', onTouchEnd);
+        canvas.addEventListener('touchcancel', onTouchEnd);
+        canvas.addEventListener('touchmove', onTouchMove);
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Delete') {
+                drawings.length = 0; // Clear the array
+                saveDrawings(); // Save the cleared array
+                redrawCanvas(); // Redraw the canvas
+            }
+            if (event.key === 's') {
+                let canvasUrl = canvas.toDataURL("image/jpeg", 0.5);
+                console.log(canvasUrl);
+                const createEl = document.createElement('a');
+                createEl.href = canvasUrl;
+                createEl.download = "whiteboard";
+                createEl.click();
+                createEl.remove();
+            }
+        });
+
+        // Mouse functions
+        let leftMouseDown = false;
+        let rightMouseDown = false;
+
+        function onMouseDown(event) {
+            // Detect left clicks
+            if (event.button == 0) {
+                leftMouseDown = true;
+            }
+
+            // Detect right clicks
+            if (event.button == 2) {
+                rightMouseDown = true;
+            }
+            if (leftMouseDown) {
+                startLine(event.clientX, event.clientY);
+            }
+        }
+
+        function onMouseUp(event) {
+            leftMouseDown = false;
+            rightMouseDown = false;
+            prevCursorX = undefined;
+            prevCursorY = undefined;
+        }
+
+        function onMouseMove(event) {
+            cursorX = event.clientX;
+            cursorY = event.clientY;
+            if (leftMouseDown) {
+                moveLine(cursorX, cursorY);
+            } else if (rightMouseDown) {
+                moveScreen(cursorX, cursorY);
+            }
+        }
+
+        function onMouseWheel(event) {
+            // Zoom in/out relative to the cursor position
+            let previousScale = scale;
+            scale *= Math.pow(1.001, event.deltaY);
+
+            // Limit the zoom scale between 0.1 and 10
+            scale = Math.max(0.1, Math.min(10, scale));
+
+            // Calculate new offsetX and offsetY to keep the canvas centered around the cursor
+            offsetX -= (event.clientX / scale - event.clientX / previousScale) / scale;
+            offsetY -= (event.clientY / scale - event.clientY / previousScale) / scale;
+
+            redrawCanvas();
+        }
+
+        // Touch functions
+        let touchDown = false;
+
+        function onTouchStart(event) {
+            touchDown = true;
+            let touches = event.changedTouches;
+            startLine(touches[0].clientX, touches[0].clientY);
+        }
+
+        function onTouchEnd(event) {
+            touchDown = false;
+            prevCursorX = undefined;
+            prevCursorY = undefined;
+        }
+
+        function onTouchMove(event) {
+            let touches = event.changedTouches;
+            cursorX = touches[0].clientX;
+            cursorY = touches[0].clientY;
+            if (touchDown) {
+                moveLine(cursorX, cursorY);
+            }
+        }
+
+        // Drawing functions
+        function startLine(x, y) {
+            prevCursorX = x;
+            prevCursorY = y;
+        }
+
+        function moveLine(x, y) {
+            if (prevCursorX == undefined || prevCursorY == undefined) {
+                startLine(x, y);
+            }
+            const x0 = toTrueX(prevCursorX);
+            const y0 = toTrueY(prevCursorY);
+            const x1 = toTrueX(x);
+            const y1 = toTrueY(y);
+            drawLine(toScreenX(x0), toScreenY(y0), toScreenX(x1), toScreenY(y1), colorPicker.value, context.lineWidth);
+            drawings.push({
+                x0: x0,
+                y0: y0,
+                x1: x1,
+                y1: y1,
+                color: colorPicker.value,
+                lineWidth: context.lineWidth
+            });
+            prevCursorX = x;
+            prevCursorY = y;
+            saveDrawings(); // Save drawings array after each new line is added
+        }
+
+        function drawLine(x0, y0, x1, y1, color = "#000", lineWidth = 2) {
+            context.beginPath();
+            context.moveTo(x0, y0);
+            context.lineTo(x1, y1);
+            context.strokeStyle = () => {
+                if (color === "bgColor") {
+                    return bgColor;
+                } else {
+                    return color;
+                }
+            };
+            context.lineWidth = lineWidth;
+            context.lineCap = "round";
+            context.stroke();
+        }
+
+        function moveScreen(x, y) {
+            if (prevCursorX == undefined || prevCursorY == undefined) {
+                startLine(x, y);
+            }
+            offsetX += (x - prevCursorX) / scale;
+            offsetY += (y - prevCursorY) / scale;
+            prevCursorX = x;
+            prevCursorY = y;
+            redrawCanvas();
+        }
+
+    </script>
+</body>
+
+</html>
